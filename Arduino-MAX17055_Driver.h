@@ -75,12 +75,26 @@ class MAX17055
       AvgVCell    = 0x19, //The AvgVCell register reports an average of the VCell register readings. 
       Current     = 0x0A, //Voltage between the CSP and CSN pins, and would need to convert to current
       AvgCurrent  = 0x0B, //The AvgCurrent register reports an average of Current register readings
+      MaxMinCurr  = 0x1C, //Max and min current since the last reset
       RepSOC      = 0x06, //The Reported State of Charge of connected battery. Refer to AN6358 page 23 and 13
       RepCap      = 0x05, //Reported Capacity. Refer to page 23 and 13 of AN6358.
       TimeToEmpty = 0x11, //How long before battery is empty (in ms). Refer to page 24 and 13 of AN6358 
       DesignCap   = 0x18, //Capacity of battery inserted, not typically used for user requested capacity
       ModelCfg    = 0xDB, //Battery characterization
       VEmpty      = 0x3A, //empty voltage
+      FStat       = 0x3D, // FStat register
+      HibCfg      = 0xBA, // Hibernation
+      CommandReg  = 0x60, // Command Register (Soft Wakeup)
+      DQAcc       = 0x45, 
+      DPAcc       = 0x46,
+      IchgTerm    = 0x1E, // for end-of-charge detection
+      RComp0      = 0x38, // characterization
+      TempCo      = 0x39, // characterization
+      FullCapRep  = 0x10, // characterization
+      Cycles      = 0x17,
+      FullCapNom  = 0x23, // characterization
+      MixCap      = 0x0F,
+      MixSOC      = 0x0D,
     };
 
     enum modelID
@@ -96,9 +110,24 @@ class MAX17055
     //methods
     MAX17055(void); //Constructor prototype
     MAX17055(uint16_t batteryCapacity); //Constructor allowing user to set capacity of battery
+
+    // example for LiFePO4:
+    // bool success = sensor.init(delay, 6000, 300, 360, MAX17055::modelID::LiFePO4, false, 0.01);
+    // set vCharge to true if charge voltage is greater than 4.275
+    bool init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, float resistSensor);
+
+
+    // It is recommended to save the learned capacity parameters every time bit 6 of the Cycles register toggles
+    void getLearnedParameters(uint16_t& rcomp0, uint16_t& tempCo, uint16_t& fullCapRep, uint16_t& cycles, uint16_t& fullCapNom);
+    void restoreLearnedParameters(void (*wait)(uint32_t), uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom);
     
-    bool  init();
+    // get power-on reset
+    bool getPOR();
+    void resetPOR();
     float getAverageCurrent();
+    float getMaxCurrent();
+    float getMinCurrent();
+    void resetMaxMinCurrent();
     float getInstantaneousCurrent();
     float getInstantaneousVoltage();
     void  setCapacity(uint16_t batteryCapacity);
@@ -108,6 +137,7 @@ class MAX17055
     // only set upper four bits of modelID, e.g. 0x60
     void setModelCfg(bool vChg, uint8_t modelID);
     uint16_t getModelCfg();
+    uint16_t getCycles();
 
     float getCapacity();
     void  setResistSensor(float resistorValue); 

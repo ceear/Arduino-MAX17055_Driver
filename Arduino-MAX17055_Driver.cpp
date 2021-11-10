@@ -70,23 +70,94 @@ MAX17055::MAX17055(uint16_t batteryCapacity)
 	writeReg16Bit(DesignCap, batteryCapacity*2);
 }
 // Public Methods
-bool MAX17055::init()
+bool MAX17055::init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, float resistSensor)
 {
     Wire.beginTransmission(I2CAddress);
     byte error = Wire.endTransmission();
     if (error == 0) //Device Acknowledged
     {
-        bool POR = readReg16Bit(Status)&0x0002;
+        // see MAX17055 Software Implementation Guide
+        // 1.
+        bool POR = getPOR();
         if (POR)
         {
-            setCapacity(2600); //default values
-            setResistSensor(0.01);  //default values
-            //TODO: load configs as needed
-            writeReg16Bit(Status,readReg16Bit(Status)&0xFFFD); //reset POR Status
+            // 2. do not continue until FSTAT.DNR == 0
+            while(readReg16Bit(FStat)&1) {
+                wait(10);
+            }
+
+            // 3. Initialize configuration
+            uint16_t hibCfg = readReg16Bit(HibCfg);
+            writeReg16Bit(CommandReg, 0x90);
+            writeReg16Bit(HibCfg, 0x0);
+            writeReg16Bit(CommandReg, 0x0);
+
+            // 3.1 OPTION 1 EZ Config (no INI file is needed): 
+            setCapacity(batteryCapacity);
+            writeReg16Bit(DQAcc, batteryCapacity/32);
+            // writeReg16Bit(IchgTerm, 0x640); // leave default for now
+            setEmptyVoltage(vEmpty, vRecovery);
+
+            // leave out dQAcc for now
+            setModelCfg(vCharge, modelID);
+
+            // Do not continue until ModelCFG.Refresh == 0
+            while (readReg16Bit(ModelCfg) & 0x8000) {
+                wait(10);
+            }
+            writeReg16Bit(HibCfg, hibCfg); // Restore Original HibCFG value 
+
+            // 4. clear POR bit
+            resetPOR();
+
+            // TODO: never used anyway, values other than 0.01 not supported ?
+            setResistSensor(resistSensor);
+            
         }
         return true;
     }
     return false; //device not found
+}
+
+void MAX17055::getLearnedParameters(uint16_t& rComp0, uint16_t& tempCo, uint16_t& fullCapRep, uint16_t& cycles, uint16_t& fullCapNom) 
+{
+    rComp0 = readReg16Bit(RComp0);
+    tempCo = readReg16Bit(TempCo);
+    fullCapRep = readReg16Bit(FullCapRep);
+    cycles = readReg16Bit(Cycles);
+    fullCapNom = readReg16Bit(FullCapNom);
+}
+
+void MAX17055::restoreLearnedParameters(void (*wait)(uint32_t), uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom)
+{
+    writeReg16Bit(RComp0, rComp0);
+    writeReg16Bit(TempCo, tempCo);
+    writeReg16Bit(FullCapNom, fullCapNom);
+
+    wait(350);
+    
+    uint16_t mixCap = (readReg16Bit(MixSOC)*readReg16Bit(FullCapNom))/25600;
+    writeReg16Bit(MixCap, mixCap);
+    writeReg16Bit(FullCapRep, fullCapRep);
+
+    //Write dQacc to 200% of Capacity and dPacc to 200%  
+    uint16_t dQacc = (FullCapNom / 16);
+    writeReg16Bit(DPAcc, 0x0C80);
+    writeReg16Bit(DQAcc, DQAcc); 
+
+    wait(350);
+
+    writeReg16Bit(Cycles, cycles);
+}
+
+bool MAX17055::getPOR() 
+{
+    return readReg16Bit(Status)&0x0002;
+}
+
+void MAX17055::resetPOR() 
+{
+    writeReg16Bit(Status,readReg16Bit(Status)&0xFFFD); //reset POR Status
 }
 
 void MAX17055::setCapacity(uint16_t batteryCapacity)
@@ -96,10 +167,10 @@ void MAX17055::setCapacity(uint16_t batteryCapacity)
 }	
 
 void MAX17055::setEmptyVoltage(uint16_t vEmpty, uint16_t vRecovery){
-    uint16_t regVal = (vEmpty << 7) & 0xFF80
+    uint16_t regVal = (vEmpty << 7) & 0xFF80;
 
     // vRecovery has a resolution of 40mV in the Reg
-    regVal = regVal | ((vRecovery >> 2) & 0x007F)
+    regVal = regVal | ((vRecovery >> 2) & 0x007F);
 
 	writeReg16Bit(VEmpty, regVal);
 }
@@ -120,6 +191,10 @@ void MAX17055::setModelCfg(bool vChg, uint8_t modelID) {
 
 uint16_t MAX17055::getModelCfg(){
 	return readReg16Bit(ModelCfg);
+}
+
+uint16_t MAX17055::getCycles(){
+	return readReg16Bit(Cycles);
 }
 
 float MAX17055::getCapacity()
@@ -143,6 +218,25 @@ float MAX17055::getAverageCurrent() //+ve current is charging, -ve is dischargin
 {
    	int16_t current_raw = readReg16Bit(AvgCurrent);
 	return current_raw * current_multiplier_mV;
+}
+
+float MAX17055::getMinCurrent() //+ve current is charging, -ve is discharging
+{
+    float multiplier = 0.4 / resistSensor; // different resolution
+   	int8_t current_raw = (readReg16Bit(MaxMinCurr) & 0x00FF;
+	return current_raw * multiplier;
+}
+
+float MAX17055::getMaxCurrent() //+ve current is charging, -ve is discharging
+{
+    float multiplier = 0.4 / resistSensor; // different resolution
+   	int8_t current_raw = readReg16Bit(MaxMinCurr) >> 8;
+	return current_raw * multiplier;
+}
+
+void MAX17055::resetMaxMinCurrent()
+{
+    writeReg16Bit(MaxMinCurr, 0x807F);
 }
 
 float MAX17055::getInstantaneousCurrent() //+ve current is charging, -ve is discharging
