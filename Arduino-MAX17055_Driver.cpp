@@ -76,6 +76,33 @@ void MAX17055::setCapacity(uint16_t batteryCapacity)
 	writeReg16Bit(DesignCap, batteryCapacity*2);	
 }	
 
+void MAX17055::setEmptyVoltage(uint16_t vEmpty, uint16_t vRecovery){
+    uint16_t regVal = (vEmpty << 7) & 0xFF80
+
+    // vRecovery has a resolution of 40mV in the Reg
+    regVal = regVal | ((vRecovery >> 2) & 0x007F)
+
+	writeReg16Bit(VEmpty, regVal);
+}
+
+uint16_t MAX17055::getEmptyVoltage(){
+	return readReg16Bit(VEmpty);
+}
+
+void MAX17055::setModelCfg(bool vChg, uint8_t modelID) {
+  uint16_t val = 0x8000;
+  if(vChg) {
+    val = val | 0x400;
+  }
+  val = val | (modelID & 0xF0);
+
+  writeReg16Bit(ModelCfg, val);
+}
+
+uint16_t MAX17055::getModelCfg(){
+	return readReg16Bit(ModelCfg);
+}
+
 float MAX17055::getCapacity()
 {
    	// uint16_t capacity_raw = readReg16Bit(RepCap);

@@ -76,7 +76,17 @@ class MAX17055
       RepCap      = 0x05, //Reported Capacity. Refer to page 23 and 13 of AN6358.
       TimeToEmpty = 0x11, //How long before battery is empty (in ms). Refer to page 24 and 13 of AN6358 
       DesignCap   = 0x18, //Capacity of battery inserted, not typically used for user requested capacity
+      ModelCfg    = 0xDB, //Battery characterization
+      VEmpty      = 0x3A, //empty voltage
     };
+
+    enum modelID
+    {
+      Generic = 0x00, // for most battery chemistries
+      NCR_NCA = 0x20, // lithium NCR or NCA cells such as Panasonic
+      LiFePO4 = 0x60, // for LiFePO4 batteries
+    };
+
     //variables
     
     
@@ -87,6 +97,13 @@ class MAX17055
     float getInstantaneousCurrent();
     float getInstantaneousVoltage();
     void  setCapacity(uint16_t batteryCapacity);
+    // resolution is 10mV (330=3.3V)
+    void setEmptyVoltage(uint16_t vEmpty, uint16_t vRecovery);
+    uint16_t getEmptyVoltage();
+    // only set upper four bits of modelID, e.g. 0x60
+    void setModelCfg(bool vChg, uint8_t modelID);
+    uint16_t getModelCfg();
+
     float getCapacity();
     void  setResistSensor(float resistorValue); 
     float getResistSensor(); 
