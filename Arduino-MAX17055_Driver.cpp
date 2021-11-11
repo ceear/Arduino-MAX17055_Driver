@@ -223,7 +223,7 @@ float MAX17055::getAverageCurrent() //+ve current is charging, -ve is dischargin
 float MAX17055::getMinCurrent() //+ve current is charging, -ve is discharging
 {
     float multiplier = 0.4 / resistSensor; // different resolution
-   	int8_t current_raw = (readReg16Bit(MaxMinCurr) & 0x00FF;
+   	int8_t current_raw = readReg16Bit(MaxMinCurr) & 0x00FF;
 	return current_raw * multiplier;
 }
 
