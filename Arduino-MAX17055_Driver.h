@@ -95,6 +95,7 @@ class MAX17055
       FullCapNom  = 0x23, // characterization
       MixCap      = 0x0F,
       MixSOC      = 0x0D,
+      FilterCfg   = 0x29, // sets the averaging time period for all A/D readings, for mixing OCV results and coulomb count results
     };
 
     enum modelID
@@ -124,11 +125,12 @@ class MAX17055
     // get power-on reset
     bool getPOR();
     void resetPOR();
-    float getAverageCurrent();
     float getMaxCurrent();
     float getMinCurrent();
     void resetMaxMinCurrent();
+    float getAverageCurrent();
     float getInstantaneousCurrent();
+    float getAverageVoltage();
     float getInstantaneousVoltage();
     void  setCapacity(uint16_t batteryCapacity);
     // resolution is 10mV (330=3.3V)
@@ -137,6 +139,7 @@ class MAX17055
     // only set upper four bits of modelID, e.g. 0x60
     void setModelCfg(bool vChg, uint8_t modelID);
     uint16_t getModelCfg();
+    // cycles in percent
     uint16_t getCycles();
 
     float getCapacity();

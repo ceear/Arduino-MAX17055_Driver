@@ -76,6 +76,9 @@ bool MAX17055::init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t v
     byte error = Wire.endTransmission();
     if (error == 0) //Device Acknowledged
     {
+        // TODO: never used anyway, values other than 0.01 not supported ?
+        setResistSensor(resistSensor);
+
         // see MAX17055 Software Implementation Guide
         // 1.
         bool POR = getPOR();
@@ -109,10 +112,6 @@ bool MAX17055::init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t v
 
             // 4. clear POR bit
             resetPOR();
-
-            // TODO: never used anyway, values other than 0.01 not supported ?
-            setResistSensor(resistSensor);
-            
         }
         return true;
     }
@@ -176,7 +175,7 @@ void MAX17055::setEmptyVoltage(uint16_t vEmpty, uint16_t vRecovery){
 }
 
 uint16_t MAX17055::getEmptyVoltage(){
-	return readReg16Bit(VEmpty);
+	return (readReg16Bit(VEmpty) & 0xFF80) >> 7;
 }
 
 void MAX17055::setModelCfg(bool vChg, uint8_t modelID) {
@@ -214,12 +213,6 @@ float MAX17055::getResistSensor()
 	return resistSensor;
 }
 
-float MAX17055::getAverageCurrent() //+ve current is charging, -ve is discharging
-{
-   	int16_t current_raw = readReg16Bit(AvgCurrent);
-	return current_raw * current_multiplier_mV;
-}
-
 float MAX17055::getMinCurrent() //+ve current is charging, -ve is discharging
 {
     float multiplier = 0.4 / resistSensor; // different resolution
@@ -239,10 +232,23 @@ void MAX17055::resetMaxMinCurrent()
     writeReg16Bit(MaxMinCurr, 0x807F);
 }
 
+
+float MAX17055::getAverageCurrent() //+ve current is charging, -ve is discharging
+{
+   	int16_t current_raw = readReg16Bit(AvgCurrent);
+	return current_raw * current_multiplier_mV;
+}
+
 float MAX17055::getInstantaneousCurrent() //+ve current is charging, -ve is discharging
 {
    	int16_t current_raw = readReg16Bit(Current);
 	return current_raw * current_multiplier_mV;
+}
+
+float MAX17055::getAverageVoltage()
+{
+   	uint16_t voltage_raw = readReg16Bit(AvgVCell);
+	return voltage_raw * voltage_multiplier_V;
 }
 
 float MAX17055::getInstantaneousVoltage()
