@@ -140,9 +140,9 @@ void MAX17055::restoreLearnedParameters(void (*wait)(uint32_t), uint16_t rComp0,
     writeReg16Bit(FullCapRep, fullCapRep);
 
     //Write dQacc to 200% of Capacity and dPacc to 200%  
-    uint16_t dQacc = (FullCapNom / 16);
+    uint16_t dQAcc = (FullCapNom / 16);
     writeReg16Bit(DPAcc, 0x0C80);
-    writeReg16Bit(DQAcc, DQAcc); 
+    writeReg16Bit(DQAcc, dQAcc); 
 
     wait(350);
 
@@ -194,6 +194,18 @@ uint16_t MAX17055::getModelCfg(){
 
 uint16_t MAX17055::getCycles(){
 	return readReg16Bit(Cycles);
+}
+
+void MAX17055::setEmptySOCHold(float percentage){
+    uint16_t socHold = readReg16Bit(SOCHold) & 0xFFE0;
+    uint8_t emptySOCHold = (uint8_t) floor(percentage * 2) & 0x1F; 
+
+    writeReg16Bit(SOCHold, socHold | emptySOCHold);
+}
+
+float MAX17055::getEmptySOCHold(){
+    uint8_t emptySOCHold = readReg16Bit(SOCHold) & 0x001F;
+    return (float) emptySOCHold / 2.0f;
 }
 
 float MAX17055::getCapacity()

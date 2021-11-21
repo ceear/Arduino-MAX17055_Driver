@@ -96,6 +96,7 @@ class MAX17055
       MixCap      = 0x0F,
       MixSOC      = 0x0D,
       FilterCfg   = 0x29, // sets the averaging time period for all A/D readings, for mixing OCV results and coulomb count results
+      SOCHold     = 0xD3, // How low/high percentage (e.g. 99%) is held depending on voltage
     };
 
     enum modelID
@@ -141,6 +142,9 @@ class MAX17055
     uint16_t getModelCfg();
     // cycles in percent
     uint16_t getCycles();
+
+    void setEmptySOCHold(float percentage);
+    float getEmptySOCHold();
 
     float getCapacity();
     void  setResistSensor(float resistorValue); 
