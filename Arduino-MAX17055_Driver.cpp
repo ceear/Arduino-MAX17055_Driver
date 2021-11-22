@@ -71,7 +71,7 @@ MAX17055::MAX17055(uint16_t batteryCapacity)
 
 // Public Methods
 bool MAX17055::init(uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, 
-              float resistSensor, TwoWire *theWire, void (*wait)(uint32_t)) 
+              float resistSensor, bool& por, TwoWire *theWire, void (*wait)(uint32_t)) 
 {
     _wire = theWire;
     _wait = wait;
@@ -85,8 +85,8 @@ bool MAX17055::init(uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecover
 
         // see MAX17055 Software Implementation Guide
         // 1.
-        bool POR = getPOR();
-        if (POR)
+        por = getPOR();
+        if (por)
         {
             // 2. do not continue until FSTAT.DNR == 0
             while(readReg16Bit(FStat)&1) {

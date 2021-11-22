@@ -115,10 +115,10 @@ class MAX17055
     MAX17055(uint16_t batteryCapacity); //Constructor allowing user to set capacity of battery
 
     // example for LiFePO4:
-    // bool success = sensor.init(6000, 300, 360, MAX17055::modelID::LiFePO4, false, 0.01);
+    // bool success = sensor.init(6000, 300, 360, MAX17055::modelID::LiFePO4, false, 0.01, por);
     // set vCharge to true if charge voltage is greater than 4.275
     bool init(uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, 
-              float resistSensor, TwoWire *theWire = &Wire, void (*wait)(uint32_t) = &delay);
+              float resistSensor, bool& por, TwoWire *theWire = &Wire, void (*wait)(uint32_t) = &delay);
 
 
     // It is recommended to save the learned capacity parameters every time bit 6 of the Cycles register toggles
