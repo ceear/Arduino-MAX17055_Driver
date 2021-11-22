@@ -32,6 +32,7 @@
 #define Arduino-MAX17055_Driver.h_h
 
 #include <Arduino.h>
+#include <Wire.h>
 
 /**********************************************************************
 * @brief MAX17055 - The MAX17055 is a low 7μA operating current fuel gauge that implements 
@@ -114,14 +115,15 @@ class MAX17055
     MAX17055(uint16_t batteryCapacity); //Constructor allowing user to set capacity of battery
 
     // example for LiFePO4:
-    // bool success = sensor.init(delay, 6000, 300, 360, MAX17055::modelID::LiFePO4, false, 0.01);
+    // bool success = sensor.init(6000, 300, 360, MAX17055::modelID::LiFePO4, false, 0.01);
     // set vCharge to true if charge voltage is greater than 4.275
-    bool init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, float resistSensor);
+    bool init(uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, 
+              float resistSensor, TwoWire *theWire = &Wire, void (*wait)(uint32_t) = &delay);
 
 
     // It is recommended to save the learned capacity parameters every time bit 6 of the Cycles register toggles
     void getLearnedParameters(uint16_t& rcomp0, uint16_t& tempCo, uint16_t& fullCapRep, uint16_t& cycles, uint16_t& fullCapNom);
-    void restoreLearnedParameters(void (*wait)(uint32_t), uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom);
+    void restoreLearnedParameters(uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom);
     
     // get power-on reset
     bool getPOR();
@@ -159,6 +161,9 @@ private:
     //variables
     float resistSensor = 0.01; //default internal resist sensor
     uint8_t I2CAddress = 0x36;
+
+    TwoWire *_wire = &Wire;
+    void (*_wait)(uint32_t) = &delay;
     
     //Based on "Standard Register Formats" AN6358, figure 1.3. 
     //Multipliers are constants used to multiply register value in order to get final result

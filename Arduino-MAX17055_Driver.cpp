@@ -29,7 +29,6 @@
 **********************************************************************/
 
 #include <Arduino-MAX17055_Driver.h>
-#include <Wire.h>
 
 /**********************************************************************
 * @brief MAX17055 - The MAX17055 is a low 7μA operating current fuel gauge that implements 
@@ -69,11 +68,16 @@ MAX17055::MAX17055(uint16_t batteryCapacity)
 	//calcuation based on AN6358 page 13 figure 1.3 for Capacity, but reversed to get the register value 
 	writeReg16Bit(DesignCap, batteryCapacity*2);
 }
+
 // Public Methods
-bool MAX17055::init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, float resistSensor)
+bool MAX17055::init(uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecovery, uint8_t modelID, bool vCharge, 
+              float resistSensor, TwoWire *theWire, void (*wait)(uint32_t)) 
 {
-    Wire.beginTransmission(I2CAddress);
-    byte error = Wire.endTransmission();
+    _wire = theWire;
+    _wait = wait;
+
+    _wire->beginTransmission(I2CAddress);
+    byte error = _wire->endTransmission();
     if (error == 0) //Device Acknowledged
     {
         // TODO: never used anyway, values other than 0.01 not supported ?
@@ -86,7 +90,7 @@ bool MAX17055::init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t v
         {
             // 2. do not continue until FSTAT.DNR == 0
             while(readReg16Bit(FStat)&1) {
-                wait(10);
+                _wait(10);
             }
 
             // 3. Initialize configuration
@@ -106,7 +110,7 @@ bool MAX17055::init(void (*wait)(uint32_t), uint16_t batteryCapacity, uint16_t v
 
             // Do not continue until ModelCFG.Refresh == 0
             while (readReg16Bit(ModelCfg) & 0x8000) {
-                wait(10);
+                _wait(10);
             }
             writeReg16Bit(HibCfg, hibCfg); // Restore Original HibCFG value 
 
@@ -127,13 +131,13 @@ void MAX17055::getLearnedParameters(uint16_t& rComp0, uint16_t& tempCo, uint16_t
     fullCapNom = readReg16Bit(FullCapNom);
 }
 
-void MAX17055::restoreLearnedParameters(void (*wait)(uint32_t), uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom)
+void MAX17055::restoreLearnedParameters(uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom)
 {
     writeReg16Bit(RComp0, rComp0);
     writeReg16Bit(TempCo, tempCo);
     writeReg16Bit(FullCapNom, fullCapNom);
 
-    wait(350);
+    _wait(350);
     
     uint16_t mixCap = (readReg16Bit(MixSOC)*readReg16Bit(FullCapNom))/25600;
     writeReg16Bit(MixCap, mixCap);
@@ -144,7 +148,7 @@ void MAX17055::restoreLearnedParameters(void (*wait)(uint32_t), uint16_t rComp0,
     writeReg16Bit(DPAcc, 0x0C80);
     writeReg16Bit(DQAcc, dQAcc); 
 
-    wait(350);
+    _wait(350);
 
     writeReg16Bit(Cycles, cycles);
 }
@@ -301,22 +305,22 @@ bool MAX17055::getPresent() { //TODO: Doesn't seem to detect battery removal/re-
 void MAX17055::writeReg16Bit(uint8_t reg, uint16_t value)
 {
   //Write order is LSB first, and then MSB. Refer to AN635 pg 35 figure 1.12.2.5
-  Wire.beginTransmission(I2CAddress);
-  Wire.write(reg);
-  Wire.write( value       & 0xFF); // value low byte
-  Wire.write((value >> 8) & 0xFF); // value high byte
-  uint8_t last_status = Wire.endTransmission();
+  _wire->beginTransmission(I2CAddress);
+  _wire->write(reg);
+  _wire->write( value       & 0xFF); // value low byte
+  _wire->write((value >> 8) & 0xFF); // value high byte
+  uint8_t last_status = _wire->endTransmission();
 }
 
 uint16_t MAX17055::readReg16Bit(uint8_t reg)
 {
   uint16_t value = 0;  
-  Wire.beginTransmission(I2CAddress); 
-  Wire.write(reg);
-  uint8_t last_status = Wire.endTransmission(false);
+  _wire->beginTransmission(I2CAddress); 
+  _wire->write(reg);
+  uint8_t last_status = _wire->endTransmission(false);
   
-  Wire.requestFrom(I2CAddress, (uint8_t) 2); 
-  value  = Wire.read();
-  value |= (uint16_t)Wire.read() << 8;      // value low byte
+  _wire->requestFrom(I2CAddress, (uint8_t) 2); 
+  value  = _wire->read();
+  value |= (uint16_t)_wire->read() << 8;      // value low byte
   return value;
 }
