@@ -86,6 +86,10 @@ bool MAX17055::init(uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecover
         // see MAX17055 Software Implementation Guide
         // 1.
         por = getPOR();
+
+        //set lerncfg
+        //WriteAndVerifyRegister(LearnCfg, readReg16Bit(LearnCfg) | 0x70);
+
         if (por)
         {
             // 2. do not continue until FSTAT.DNR == 0
@@ -101,47 +105,68 @@ bool MAX17055::init(uint16_t batteryCapacity, uint16_t vEmpty, uint16_t vRecover
 
             // 3.1 OPTION 1 EZ Config (no INI file is needed): 
             setCapacity(batteryCapacity);
-            writeReg16Bit(DQAcc, batteryCapacity/32);
-            // writeReg16Bit(IchgTerm, 0x640); // leave default for now
+            WriteAndVerifyRegister(DQAcc, batteryCapacity/32);
+            WriteAndVerifyRegister(IchgTerm, 0x0640); // Default 0x0640
             setEmptyVoltage(vEmpty, vRecovery);
 
-            // leave out dQAcc for now
+            uint16_t dQAcc=int(batteryCapacity/32);
+            WriteAndVerifyRegister (0x46 , dQAcc*44138/batteryCapacity); //Write dPAcc
             setModelCfg(vCharge, modelID);
+
+            //Set additional LiFePo4 settings
+            if (modelID = LiFePO4) {
+                // Min: 2900
+                // Max: 2900 + 285 = 3185
+                setOCV_Low_Lim(2900);
+                setOCV_Delta(285);
+            }
 
             // Do not continue until ModelCFG.Refresh == 0
             while (readReg16Bit(ModelCfg) & 0x8000) {
-                _wait(10);
+                _wait(20);
             }
-            writeReg16Bit(HibCfg, hibCfg); // Restore Original HibCFG value 
+            WriteAndVerifyRegister(hibCfg, 0x870c);
+            
+            //3.5 check for init error 
+            // sometimes the max17055 is not initialized correctly which results in incorrect RepSOC and RepCap values. 
+            // TODO: find status register which indicates this. for now check for SOC=100% and CAP=0
 
-            // 4. clear POR bit
-            resetPOR();
+            _wait(50);
+            if (! checkInit()) {
+                return false;
+            } else {
+                // 4. clear POR bit
+                resetPOR();
+                return true;
+            
+            }
         }
         return true;
     }
     return false; //device not found
 }
 
-void MAX17055::getLearnedParameters(uint16_t& rComp0, uint16_t& tempCo, uint16_t& fullCapRep, uint16_t& cycles, uint16_t& fullCapNom) 
+void MAX17055::getLearnedParameters(uint16_t& v_rComp0, uint16_t& v_tempCo, uint16_t& v_fullCapRep, uint16_t& v_cycles, uint16_t& v_fullCapNom, uint16_t& v_repCap, uint16_t& v_mixCap, bool& v_learnComp) 
 {
-    rComp0 = readReg16Bit(RComp0);
-    tempCo = readReg16Bit(TempCo);
-    fullCapRep = readReg16Bit(FullCapRep);
-    cycles = readReg16Bit(Cycles);
-    fullCapNom = readReg16Bit(FullCapNom);
+    v_rComp0 = readReg16Bit(RComp0);
+    v_tempCo = readReg16Bit(TempCo);
+    v_fullCapRep = readReg16Bit(FullCapRep);
+    v_cycles = readReg16Bit(Cycles);
+    v_fullCapNom = readReg16Bit(FullCapNom);
+    v_repCap = readReg16Bit(RepCap);
+    v_mixCap = readReg16Bit(MixCap);
+    v_learnComp = getLearnCfg();
 }
 
-void MAX17055::restoreLearnedParameters(uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom)
+void MAX17055::restoreLearnedParameters(uint16_t v_rComp0, uint16_t v_tempCo, uint16_t v_fullCapRep, uint16_t v_cycles, uint16_t v_fullCapNom, uint16_t v_repCap, uint16_t v_mixCap, bool v_learnCfg)
 {
-    writeReg16Bit(RComp0, rComp0);
-    writeReg16Bit(TempCo, tempCo);
-    writeReg16Bit(FullCapNom, fullCapNom);
+    WriteAndVerifyRegister(RComp0, v_rComp0);
+    WriteAndVerifyRegister(TempCo, v_tempCo);
+    WriteAndVerifyRegister(FullCapNom, v_fullCapNom);
 
     _wait(350);
-    
-    uint16_t mixCap = (readReg16Bit(MixSOC)*readReg16Bit(FullCapNom))/25600;
-    writeReg16Bit(MixCap, mixCap);
-    writeReg16Bit(FullCapRep, fullCapRep);
+
+    WriteAndVerifyRegister(FullCapRep, v_fullCapRep);
 
     //Write dQacc to 200% of Capacity and dPacc to 200%  
     uint16_t dQAcc = (FullCapNom / 16);
@@ -150,7 +175,14 @@ void MAX17055::restoreLearnedParameters(uint16_t rComp0, uint16_t tempCo, uint16
 
     _wait(350);
 
-    writeReg16Bit(Cycles, cycles);
+    WriteAndVerifyRegister(Cycles, v_cycles);
+    //Restore Learn CFG
+    if (v_learnCfg) {
+        setLearnComp();
+    }
+    WriteAndVerifyRegister(RepCap, v_repCap);
+    WriteAndVerifyRegister(MixCap, v_mixCap);
+    
 }
 
 bool MAX17055::getPOR() 
@@ -163,10 +195,40 @@ void MAX17055::resetPOR()
     writeReg16Bit(Status,readReg16Bit(Status)&0xFFFD); //reset POR Status
 }
 
+bool MAX17055::checkInit() 
+{
+    float repSOC = getSOC();
+    float repCap = getRepCapacity();
+    float mixCap = readReg16Bit(MixCap) * capacity_multiplier_mAH;
+    float deltaCap = 0.0;
+    if (mixCap > 0 && repCap > 0) {
+        deltaCap = fabsf( ((mixCap - repCap) / repCap ) * 100);
+
+    } else {
+        deltaCap = 100.0;
+
+    }
+    
+    //DEBUG - TO BE REMOVED
+    Serial.println("===== INIT TEST =====");
+    Serial.printf("%s        : %f\n","deltaCap",deltaCap);
+
+    if ( (repSOC == 1.0 | repSOC == 99.0) && (deltaCap > 50 ) ) {
+        //Serial.println("INIT ERROR");    
+        return false;
+    } else {
+        //Serial.println("NO INIT ERROR FOUND");
+        return true;
+    }
+
+
+}
+
 void MAX17055::setCapacity(uint16_t batteryCapacity)
 {
 	//calcuation based on AN6358 page 13 figure 1.3 for Capacity, but reversed to get the register value 
-	writeReg16Bit(DesignCap, batteryCapacity*2);	
+	//writeReg16Bit(DesignCap, batteryCapacity*2);	
+    WriteAndVerifyRegister(DesignCap, batteryCapacity*2);
 }	
 
 void MAX17055::setEmptyVoltage(uint16_t vEmpty, uint16_t vRecovery){
@@ -175,7 +237,7 @@ void MAX17055::setEmptyVoltage(uint16_t vEmpty, uint16_t vRecovery){
     // vRecovery has a resolution of 40mV in the Reg
     regVal = regVal | ((vRecovery >> 2) & 0x007F);
 
-	writeReg16Bit(VEmpty, regVal);
+	WriteAndVerifyRegister(VEmpty, regVal);
 }
 
 uint16_t MAX17055::getEmptyVoltage(){
@@ -189,7 +251,7 @@ void MAX17055::setModelCfg(bool vChg, uint8_t modelID) {
   }
   val = val | (modelID & 0xF0);
 
-  writeReg16Bit(ModelCfg, val);
+  WriteAndVerifyRegister(ModelCfg, val);
 }
 
 uint16_t MAX17055::getModelCfg(){
@@ -200,11 +262,45 @@ uint16_t MAX17055::getCycles(){
 	return readReg16Bit(Cycles);
 }
 
+bool MAX17055::getLearnCfg(){
+    // Learn Stage defaults to 0h, making the voltage fuel gauge dominate. Learn Stage then advances 
+    // to 7h over the course of two full cell cycles to make the coulomb counter dominate.
+	return ( (readReg16Bit(LearnCfg) & 0x70) == 112) ? true : false;
+}
+
+void MAX17055::setLearnComp(){
+	WriteAndVerifyRegister(LearnCfg,readReg16Bit(LearnCfg) | 0x70);
+}
+
+bool MAX17055::getSOCAlert(){
+    // dSOCi (State of Charge 1% Change Alert)
+	return readReg16Bit(Status) & 0x80;
+}
+
+void MAX17055::resetSOCAlert() {
+    writeReg16Bit(Status,readReg16Bit(Status)&0xFF7F); 
+}
+
 void MAX17055::setEmptySOCHold(float percentage){
     uint16_t socHold = readReg16Bit(SOCHold) & 0xFFE0;
     uint8_t emptySOCHold = (uint8_t) floor(percentage * 2) & 0x1F; 
 
     writeReg16Bit(SOCHold, socHold | emptySOCHold);
+}
+
+void MAX17055::setOCV_Low_Lim(uint16_t mVoltage){
+    uint16_t val_ScOcvLim = readReg16Bit(ScOcvLim) & 0x7F;
+    uint16_t regValue = ( (mVoltage - 2560) / 5) << 7 & 0xFF80;
+
+    writeReg16Bit(ScOcvLim, val_ScOcvLim | regValue);
+}
+
+void MAX17055::setOCV_Delta(uint16_t mVoltage){
+    uint16_t val_ScOcvLim = readReg16Bit(ScOcvLim) & 0xFF80;
+    uint16_t regValue = (mVoltage / 2.5f);
+    regValue = regValue & 0x7F;
+    
+    writeReg16Bit(ScOcvLim, val_ScOcvLim | regValue);
 }
 
 float MAX17055::getEmptySOCHold(){
@@ -216,6 +312,12 @@ float MAX17055::getCapacity()
 {
    	// uint16_t capacity_raw = readReg16Bit(RepCap);
    	uint16_t capacity_raw = readReg16Bit(DesignCap);
+	return (capacity_raw * capacity_multiplier_mAH);
+}
+
+float MAX17055::getRepCapacity()
+{
+   	uint16_t capacity_raw = readReg16Bit(RepCap);
 	return (capacity_raw * capacity_multiplier_mAH);
 }
 
@@ -279,6 +381,12 @@ float MAX17055::getSOC()
 	return SOC_raw * percentage_multiplier;
 }
 
+uint8_t MAX17055::getUserSOC()
+{
+   	uint16_t SOC_raw = readReg16Bit(RepSOC);
+	return (int)round( (SOC_raw * percentage_multiplier) * 1000.0 ) / 1000.0;
+}
+
 float MAX17055::getTimeToEmpty()
 {
 	uint16_t TTE_raw = readReg16Bit(TimeToEmpty);
@@ -323,4 +431,121 @@ uint16_t MAX17055::readReg16Bit(uint8_t reg)
   value  = _wire->read();
   value |= (uint16_t)_wire->read() << 8;      // value low byte
   return value;
+}
+
+void MAX17055::WriteAndVerifyRegister(uint8_t RegisterAddress, uint16_t RegisterValueToWrite)
+{
+
+	int attempt = 0;
+	uint16_t RegisterValueRead;
+
+	do {
+		writeReg16Bit(RegisterAddress, RegisterValueToWrite);
+		_wait(1);	//1ms
+		RegisterValueRead = readReg16Bit(RegisterAddress);
+	}
+	while (RegisterValueToWrite != RegisterValueRead && attempt++<3);
+
+	if (RegisterValueToWrite != RegisterValueRead)
+	{
+		Serial.printf("%s: 0x%.4x => 0x%.4x\n", "REG-WRITING ERROR", RegisterAddress, RegisterValueToWrite);
+	}
+	else
+	{
+		Serial.printf("%s   : 0x%.4x => 0x%.4x\n", "REG-WRITING OK", RegisterAddress, RegisterValueToWrite);
+	}
+}
+
+
+void MAX17055::dumpparameter(String remark)
+{
+
+	Serial.println("========DUMP========");
+	Serial.print("===");
+	Serial.print(remark);
+	Serial.println("===");
+
+	// RComp0      = 0x38
+	uint16_t tmp = readReg16Bit(RComp0);
+	Serial.printf("%s          : 0x%.4x\n", "RComp", tmp);
+
+	// TempCo      = 0x39
+	tmp = readReg16Bit(TempCo);
+	Serial.printf("%s         : 0x%.4x\n", "TempCo", tmp);
+
+	// FullCapNom  = 0x23
+	tmp = readReg16Bit(FullCapNom);
+	Serial.printf("%s     : 0x%.4x (%f)\n", "FullCapNom", tmp, tmp *capacity_multiplier_mAH);
+
+	//FullCapRep  = 0x10
+	tmp = readReg16Bit(FullCapRep);
+	Serial.printf("%s     : 0x%.4x (%f)\n", "FullCapRep", tmp, tmp *capacity_multiplier_mAH);
+
+	//Cycles      = 0x17
+	tmp = readReg16Bit(Cycles);
+	Serial.printf("%s         : 0x%.4x\n", "Cycles", tmp);
+
+	//MixCap      = 0x0F
+	tmp = readReg16Bit(MixCap);
+	Serial.printf("%s         : 0x%.4x (%f)\n", "MixCap", tmp, tmp *capacity_multiplier_mAH);
+
+	// AtAvCap Register (DFh)
+	tmp = readReg16Bit(0xDF);
+	Serial.printf("%s        : 0x%.4x (%f)\n", "AtAvCap", tmp, tmp *capacity_multiplier_mAH);
+
+	//RepCap      = 0x05
+	tmp = readReg16Bit(RepCap);
+	Serial.printf("%s         : 0x%.4x (%f)\n", "RepCap", tmp, tmp *capacity_multiplier_mAH);
+
+	//MixSOC      = 0x0D
+	tmp = readReg16Bit(MixSOC);
+	Serial.printf("%s         : 0x%.4x (%f)\n", "MixSOC", tmp, tmp *percentage_multiplier);
+
+	//AtAvSOC Register (DEh)
+	tmp = readReg16Bit(0xDE);
+	Serial.printf("%s        : 0x%.4x (%f)\n", "AtAvSOC", tmp, tmp *percentage_multiplier);
+
+	//RepSOC      = 0x06
+	tmp = readReg16Bit(RepSOC);
+	Serial.printf("%s         : 0x%.4x (%f)\n", "RepSOC", tmp, tmp *percentage_multiplier);
+
+	//DPAcc       = 0x46
+	tmp = readReg16Bit(DPAcc);
+	Serial.printf("%s          : 0x%.4x\n", "DPAcc", tmp);
+
+	//DQAcc       = 0x45
+	tmp = readReg16Bit(DQAcc);
+	Serial.printf("%s          : 0x%.4x\n", "DQAcc", tmp);
+
+	//LearnCFG       = 0x28
+	tmp = readReg16Bit(LearnCfg);
+	uint16_t learnCFGBit = tmp & 0x70;
+	Serial.printf("%s       : 0x%.4x (0x%.4x)\n", "LearnCFG", learnCFGBit, tmp);
+
+	//DesignCap   = 0x18
+	tmp = readReg16Bit(DesignCap);
+	Serial.printf("%s      : 0x%.4x (%f)\n", "DesignCap", tmp, tmp *capacity_multiplier_mAH);
+
+	//ModelCfg    = 0xDB
+	tmp = readReg16Bit(ModelCfg);
+	Serial.printf("%s       : 0x%.4x\n", "ModelCfg", tmp);
+
+	//SOCHold     = 0xD3
+	tmp = readReg16Bit(0xD3);
+	Serial.printf("%s        : 0x%.4x\n", "SOCHold", tmp);
+
+	//ScOcvLim Register (D1h)
+	tmp = readReg16Bit(0xD1);
+	Serial.printf("%s       : 0x%.4x\n", "ScOcvLim", tmp);
+
+	//IchgTerm
+	tmp = readReg16Bit(IchgTerm);
+	Serial.printf("%s       : 0x%.4x (%f)\n", "IchgTerm", tmp, tmp *current_multiplier_mV);
+
+    //Status (00h)
+	tmp = readReg16Bit(Status);
+	Serial.printf("%s         : 0x%.4x\n", "Status", tmp);
+
+	Serial.println("====================");
+
 }

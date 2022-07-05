@@ -98,6 +98,8 @@ class MAX17055
       MixSOC      = 0x0D,
       FilterCfg   = 0x29, // sets the averaging time period for all A/D readings, for mixing OCV results and coulomb count results
       SOCHold     = 0xD3, // How low/high percentage (e.g. 99%) is held depending on voltage
+      LearnCfg    = 0x28, // The LearnCfg register controls all functions relating to adaptation during operation.
+      ScOcvLim    = 0xD1  // Configure the ScOcvLim register according to the desired OCV keep-out window
     };
 
     enum modelID
@@ -122,12 +124,13 @@ class MAX17055
 
 
     // It is recommended to save the learned capacity parameters every time bit 6 of the Cycles register toggles
-    void getLearnedParameters(uint16_t& rcomp0, uint16_t& tempCo, uint16_t& fullCapRep, uint16_t& cycles, uint16_t& fullCapNom);
-    void restoreLearnedParameters(uint16_t rComp0, uint16_t tempCo, uint16_t fullCapRep, uint16_t cycles, uint16_t fullCapNom);
-    
+    void getLearnedParameters(uint16_t& v_rComp0, uint16_t& v_tempCo, uint16_t& v_fullCapRep, uint16_t& v_cycles, uint16_t& v_fullCapNom, uint16_t& v_repCap, uint16_t& v_mixCap, bool& v_learnComp);
+    void restoreLearnedParameters(uint16_t v_rComp0, uint16_t v_tempCo, uint16_t v_fullCapRep, uint16_t v_cycles, uint16_t v_fullCapNom, uint16_t v_repCap, uint16_t v_mixCap, bool v_learnCfg);
+
     // get power-on reset
     bool getPOR();
     void resetPOR();
+    bool checkInit();
     float getMaxCurrent();
     float getMinCurrent();
     void resetMaxMinCurrent();
@@ -136,6 +139,7 @@ class MAX17055
     float getAverageVoltage();
     float getInstantaneousVoltage();
     void  setCapacity(uint16_t batteryCapacity);
+    void dumpparameter(String remark);
     // resolution is 10mV (330=3.3V)
     void setEmptyVoltage(uint16_t vEmpty, uint16_t vRecovery);
     uint16_t getEmptyVoltage();
@@ -147,15 +151,26 @@ class MAX17055
 
     void setEmptySOCHold(float percentage);
     float getEmptySOCHold();
-
+    bool getLearnCfg();
+    void setLearnComp();
+    bool getSOCAlert();
+    void resetSOCAlert();
     float getCapacity();
+    float getRepCapacity();
     void  setResistSensor(float resistorValue); 
     float getResistSensor(); 
     float getSOC(); //SOC = State of Charge 
+    uint8_t getUserSOC();
     float getTimeToEmpty();
     float getTemperature();
     float getAge();
     bool  getPresent();
+    void setOCV_Low_Lim(uint16_t mVoltage);
+    void setOCV_Delta(uint16_t mVoltage);
+    //methods
+    uint16_t readReg16Bit(uint8_t reg);
+    void writeReg16Bit(uint8_t reg, uint16_t value);
+    void WriteAndVerifyRegister (uint8_t RegisterAddress, uint16_t RegisterValueToWrite); 
 
 private:
     //variables
@@ -173,9 +188,6 @@ private:
     float time_multiplier_Hours = 5.625/3600.0; //Least Significant Bit= 5.625 seconds, 3600 converts it to Hours. refer to AN6358 pg 13 figure 1.3 in row "Time"
     float percentage_multiplier = 1.0/256.0; //refer to row "Percentage"
     
-    //methods
-    uint16_t readReg16Bit(uint8_t reg);
-    void writeReg16Bit(uint8_t reg, uint16_t value);
    };
 
 #endif
